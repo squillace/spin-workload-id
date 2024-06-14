@@ -7,13 +7,17 @@ terraform {
     }
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = ">= 2"
+      version = ">= 3"
     }
     helm = {
       source  = "hashicorp/helm"
       version = ">= 2"
     }
   }
+}
+
+provider "azurerm" {
+  features {}
 }
 
 data "azurerm_client_config" "current" {}
@@ -35,6 +39,11 @@ resource "azurerm_kubernetes_cluster" "wid" {
     name       = "default"
     node_count = 1
     vm_size    = "Standard_DS2_v2"
+    upgrade_settings {
+      drain_timeout_in_minutes      = 0
+      max_surge                     = "10%"
+      node_soak_duration_in_minutes = 0
+    }
   }
 
   identity {
@@ -52,19 +61,13 @@ resource "azurerm_federated_identity_credential" "azwid" {
   name                = "${var.prefix}-wid-cred"
   resource_group_name = azurerm_resource_group.wid.name
   audience            = ["api://AzureADTokenExchange"]
-  issuer              = azurerm_kubernetes_cluster.wid.oidc_issuer
+  issuer              = azurerm_kubernetes_cluster.wid.oidc_issuer_url
   parent_id           = azurerm_user_assigned_identity.azwid.id
   subject             = "system:serviceaccount:default:workload-identity"
   depends_on = [
-    azruerm_kubernetes_cluster.wid,
+    azurerm_kubernetes_cluster.wid,
     azurerm_user_assigned_identity.azwid
   ]
-}
-
-resource "random_string" "rando" {
-  length  = 8
-  special = false
-  upper   = false
 }
 
 resource "azurerm_key_vault" "wid" {
@@ -88,18 +91,18 @@ resource "azurerm_key_vault_access_policy" "wid" {
   object_id    = azurerm_user_assigned_identity.azwid.principal_id
 
   secret_permissions = [
-    "get",
-    "list"
+    "Get",
+    "List"
   ]
 
   key_permissions = [
-    "get",
-    "list"
+    "Get",
+    "List"
   ]
 
   certificate_permissions = [
-    "get",
-    "list"
+    "Get",
+    "List"
   ]
 
   depends_on = [
@@ -108,74 +111,57 @@ resource "azurerm_key_vault_access_policy" "wid" {
   ]
 }
 
-resource "azure_key_vault_access_policy" "tf" {
+resource "azurerm_key_vault_access_policy" "tf" {
   key_vault_id = azurerm_key_vault.wid.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
 
   secret_permissions = [
-    "get",
-    "list",
-    "set",
-    "delete",
-    "purge",
-    "recover",
-    "backup",
-    "restore"
+    "Get",
+    "List",
+    "Set",
+    "Delete",
+    "Purge",
+    "Recover",
+    "Backup",
+    "Restore"
   ]
 
   key_permissions = [
-    "get",
-    "list",
-    "create",
-    "import",
-    "delete",
-    "purge",
-    "recover",
-    "backup",
-    "restore",
-    "sign",
-    "verify",
-    "encrypt",
-    "decrypt",
-    "unwrapKey",
-    "wrapKey"
+    "Get",
+    "List",
+    "Create",
+    "Import",
+    "Delete",
+    "Purge",
+    "Recover",
+    "Backup",
+    "Restore",
+    "Sign",
+    "Verify",
+    "Encrypt",
+    "Decrypt",
+    "UnwrapKey",
+    "WrapKey"
   ]
 
   certificate_permissions = [
-    "get",
-    "list",
-    "create",
-    "import",
-    "delete",
-    "purge",
-    "recover",
-    "backup",
-    "restore",
-    "update",
-    "managecontacts",
-    "getissuers",
-    "listissuers",
-    "setissuers",
-    "deleteissuers",
-    "manageissuers",
-    "recoverissuers",
-    "backupissuers",
-    "restoreissuers",
-    "createissuers",
-    "importissuers",
-    "updateissuers",
-    "getissuers",
-    "listissuers",
-    "setissuers",
-    "deleteissuers",
-    "manageissuers",
-    "recoverissuers",
-    "backupissuers",
-    "restoreissuers",
-    "createissuers",
-    "importissuers",
-    "updateissuers"
+    "Get",
+    "List",
+    "Create",
+    "Import",
+    "Delete",
+    "Purge",
+    "Recover",
+    "Backup",
+    "Restore",
+    "Update",
+    "ManageContacts",
+    "GetIssuers",
+    "ListIssuers",
+    "SetIssuers",
+    "DeleteIssuers",
+    "ManageIssuers",
   ]
 
   depends_on = [
@@ -199,43 +185,18 @@ provider "kubernetes" {
   cluster_ca_certificate = base64decode(azurerm_kubernetes_cluster.wid.kube_config.0.cluster_ca_certificate)
 }
 
-provider "helm" {
-  kubernetes {
-    host                   = azurerm_kubernetes_cluster.wid.kube_config.0.host
-    client_certificate     = base64decode(azurerm_kubernetes_cluster.wid.kube_config.0.client_certificate)
-    client_key             = base64decode(azurerm_kubernetes_cluster.wid.kube_config.0.client_key)
-    cluster_ca_certificate = base64decode(azurerm_kubernetes_cluster.wid.kube_config.0.cluster_ca_certificate)
-  }
-}
-
 resource "kubernetes_service_account" "wid" {
   metadata {
     name      = "workload-identity"
     namespace = "default"
     annotations = {
-      "azure.workload.identity" = "${azurerm_user_assigned_identity.azwid.client_id}"
-    }
-    labels = {
-      "azure.workload.identity" = "use"
+      "azure.workload.identity/client-id" = "${azurerm_user_assigned_identity.azwid.client_id}"
     }
   }
   depends_on = [
+    azurerm_user_assigned_identity.azwid,
     azurerm_key_vault_access_policy.wid
   ]
-}
-
-resource "helm_release" "wid_chart" {
-  name       = "wid-webhook"
-  namespace  = "azure-workload-identity-system"
-  chart      = "workload-identity-webhook"
-  repository = "https://azure.github.io/azure-workload-identity/charts"
-
-  force_update     = true
-  create_namespace = true
-  set {
-    name  = "azureTenantID"
-    value = data.azurerm_client_config.current.tenant_id
-  }
 }
 
 resource "kubernetes_pod" "spin-test" {
@@ -243,7 +204,7 @@ resource "kubernetes_pod" "spin-test" {
     name      = "spin-test"
     namespace = "default"
     labels = {
-      "azure-workload-identity/use" = "true"
+      "azure.workload.identity/use" = "true"
     }
   }
 
@@ -259,6 +220,7 @@ resource "kubernetes_pod" "spin-test" {
       env {
         name  = "SECRET_NAME"
         value = azurerm_key_vault_secret.wid-secret.name
+      }
     }
   }
 }
