@@ -1,0 +1,21 @@
+spin_manifest_version = 2
+
+[application]
+authors = ["David Justice <david@devigned.com>"]
+description = "TypeScript Key/Value example"
+name = "http-ts-key-value"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "http-ts-key-value"
+
+[component.http-ts-key-value]
+source = "target/http-ts-key-value.wasm"
+exclude_files = ["**/node_modules"]
+allowed_outbound_hosts = []
+key_value_stores = ["default"]
+
+[component.http-ts-key-value.build]
+command = "npm run build"
+watch = ["src/**/*.ts", "package.json"]

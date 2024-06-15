@@ -70,112 +70,73 @@ resource "azurerm_federated_identity_credential" "azwid" {
   ]
 }
 
-resource "azurerm_key_vault" "wid" {
-  name                       = "${var.prefix}-wid"
-  location                   = azurerm_resource_group.wid.location
-  resource_group_name        = azurerm_resource_group.wid.name
-  tenant_id                  = data.azurerm_client_config.current.tenant_id
-  sku_name                   = "standard"
-  enable_rbac_authorization  = false
-  soft_delete_retention_days = 7
-  purge_protection_enabled   = true
-  network_acls {
-    bypass         = "None"
-    default_action = "Allow"
+resource "azurerm_cosmosdb_account" "wid" {
+  name                = "spin-kv-cosmos-db"
+  location            = azurerm_resource_group.wid.location
+  resource_group_name = azurerm_resource_group.wid.name
+  offer_type          = "Standard"
+  kind                = "GlobalDocumentDB"
+  consistency_policy {
+    consistency_level       = "Strong"
+    max_interval_in_seconds = 300
+    max_staleness_prefix    = 100000
   }
-}
 
-resource "azurerm_key_vault_access_policy" "wid" {
-  key_vault_id = azurerm_key_vault.wid.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = azurerm_user_assigned_identity.azwid.principal_id
-
-  secret_permissions = [
-    "Get",
-    "List"
-  ]
-
-  key_permissions = [
-    "Get",
-    "List"
-  ]
-
-  certificate_permissions = [
-    "Get",
-    "List"
-  ]
+  geo_location {
+    location          = "westus"
+    failover_priority = 0
+  }
 
   depends_on = [
-    azurerm_key_vault.wid,
+    azurerm_resource_group.wid
+  ]
+}
+
+resource "azurerm_cosmosdb_sql_database" "wid" {
+  name                = "spin"
+  resource_group_name = azurerm_resource_group.wid.name
+  account_name        = azurerm_cosmosdb_account.wid.name
+
+  depends_on = [
+    azurerm_cosmosdb_account.wid
+  ]
+}
+
+resource "azurerm_cosmosdb_sql_container" "wid" {
+  name                  = "keys-and-values"
+  resource_group_name   = azurerm_resource_group.wid.name
+  account_name          = azurerm_cosmosdb_account.wid.name
+  database_name         = azurerm_cosmosdb_sql_database.wid.name
+  partition_key_path    = "/id"
+  partition_key_version = 1
+
+  indexing_policy {
+    indexing_mode = "consistent"
+
+    included_path {
+      path = "/*"
+    }
+  }
+
+  depends_on = [
+    azurerm_cosmosdb_sql_database.wid
+  ]
+}
+
+resource "azurerm_cosmosdb_sql_role_assignment" "wid" {
+  resource_group_name = azurerm_resource_group.wid.name
+  account_name        = azurerm_cosmosdb_account.wid.name
+  role_definition_id  = "${data.azurerm_subscription.primary.id}/resourceGroups/${azurerm_resource_group.wid.name}/providers/Microsoft.DocumentDB/databaseAccounts/${azurerm_cosmosdb_account.wid.name}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002" # Data contributor
+  principal_id        = azurerm_user_assigned_identity.azwid.principal_id
+  scope               = azurerm_cosmosdb_account.wid.id
+
+  depends_on = [
+    azurerm_cosmosdb_account.wid,
     azurerm_user_assigned_identity.azwid
   ]
 }
 
-resource "azurerm_key_vault_access_policy" "tf" {
-  key_vault_id = azurerm_key_vault.wid.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = data.azurerm_client_config.current.object_id
-
-  secret_permissions = [
-    "Get",
-    "List",
-    "Set",
-    "Delete",
-    "Purge",
-    "Recover",
-    "Backup",
-    "Restore"
-  ]
-
-  key_permissions = [
-    "Get",
-    "List",
-    "Create",
-    "Import",
-    "Delete",
-    "Purge",
-    "Recover",
-    "Backup",
-    "Restore",
-    "Sign",
-    "Verify",
-    "Encrypt",
-    "Decrypt",
-    "UnwrapKey",
-    "WrapKey"
-  ]
-
-  certificate_permissions = [
-    "Get",
-    "List",
-    "Create",
-    "Import",
-    "Delete",
-    "Purge",
-    "Recover",
-    "Backup",
-    "Restore",
-    "Update",
-    "ManageContacts",
-    "GetIssuers",
-    "ListIssuers",
-    "SetIssuers",
-    "DeleteIssuers",
-    "ManageIssuers",
-  ]
-
-  depends_on = [
-    azurerm_key_vault.wid,
-  ]
-}
-
-resource "azurerm_key_vault_secret" "wid-secret" {
-  name         = "wid-secret"
-  value        = "super-secret"
-  key_vault_id = azurerm_key_vault.wid.id
-  depends_on = [
-    azurerm_key_vault_access_policy.tf
-  ]
+data "azurerm_subscription" "primary" {
 }
 
 provider "kubernetes" {
@@ -195,32 +156,68 @@ resource "kubernetes_service_account" "wid" {
   }
   depends_on = [
     azurerm_user_assigned_identity.azwid,
-    azurerm_key_vault_access_policy.wid
+    azurerm_cosmosdb_sql_role_assignment.wid
   ]
 }
 
-resource "kubernetes_pod" "spin-test" {
+resource "kubernetes_deployment" "spin-test" {
   metadata {
     name      = "spin-test"
     namespace = "default"
-    labels = {
-      "azure.workload.identity/use" = "true"
-    }
   }
 
   spec {
-    service_account_name = kubernetes_service_account.wid.metadata.0.name
-    container {
-      image = var.app-image-ref
-      name  = "oidc"
-      env {
-        name  = "KEYVAULT_URL"
-        value = azurerm_key_vault.wid.vault_uri
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "spin-test"
       }
-      env {
-        name  = "SECRET_NAME"
-        value = azurerm_key_vault_secret.wid-secret.name
+    }
+
+    template {
+      metadata {
+        labels = {
+          app                           = "spin-test"
+          "azure.workload.identity/use" = "true"
+        }
+      }
+
+      spec {
+        service_account_name = kubernetes_service_account.wid.metadata.0.name
+        container {
+          image = var.app-image-ref
+          name  = "spin-kv"
+        }
       }
     }
   }
+
+  depends_on = [
+    kubernetes_service_account.wid
+  ]
+}
+
+resource "kubernetes_service" "spin-test" {
+  metadata {
+    name      = "spin-test"
+    namespace = "default"
+  }
+
+  spec {
+    selector = {
+      app = "spin-test"
+    }
+
+    port {
+      port        = 80
+      target_port = 3000
+    }
+
+    type = "LoadBalancer"
+  }
+
+  depends_on = [
+    kubernetes_deployment.spin-test
+  ]
 }
