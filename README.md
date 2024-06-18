@@ -15,7 +15,7 @@ To run this sample, you'll need the following prerequisites:
 This is assuming you have the Spin source code in a directory similar to the way spin is referenced below. This also includes some changes to the Spin runtime to discover Azure Workload Identity credentials via process environment variables.
 
 ```bash
-docker buildx build --push --platform linux/amd64 . -t devigned/spin-kv-test:0.0.2 --build-context spin=../../fermyon/spin
+docker buildx build --push --platform linux/amd64 . -t devigned/spin-kv-test:0.0.12 --build-context spin=../../fermyon/spin
 ```
 
 ### Deploying the infrastructure
