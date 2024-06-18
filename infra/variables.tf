@@ -10,5 +10,5 @@ variable "location" {
 
 variable "app-image-ref" {
   description = "The application image reference to use to test workload identity."
-  default     = "docker.io/devigned/spin-kv-test:0.0.8"
+  default     = "docker.io/devigned/spin-kv-test:0.0.12"
 }

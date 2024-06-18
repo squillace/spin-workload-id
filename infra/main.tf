@@ -188,6 +188,10 @@ resource "kubernetes_deployment" "spin-test" {
         container {
           image = var.app-image-ref
           name  = "spin-kv"
+          env {
+            name  = "RUST_LOG"
+            value = "debug"
+          }
         }
       }
     }
