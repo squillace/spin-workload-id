@@ -9,15 +9,13 @@ terraform {
       source  = "hashicorp/azurerm"
       version = ">= 3"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = ">= 2"
-    }
+
   }
 }
 
 provider "azurerm" {
   features {}
+  subscription_id = ""
 }
 
 data "azurerm_client_config" "current" {}
@@ -38,7 +36,7 @@ resource "azurerm_kubernetes_cluster" "wid" {
   default_node_pool {
     name       = "default"
     node_count = 1
-    vm_size    = "Standard_DS2_v2"
+    vm_size    = var.node_sku
     upgrade_settings {
       drain_timeout_in_minutes      = 0
       max_surge                     = "10%"
@@ -107,7 +105,7 @@ resource "azurerm_cosmosdb_sql_container" "wid" {
   resource_group_name   = azurerm_resource_group.wid.name
   account_name          = azurerm_cosmosdb_account.wid.name
   database_name         = azurerm_cosmosdb_sql_database.wid.name
-  partition_key_path    = "/id"
+  partition_key_paths   = ["/id"]
   partition_key_version = 1
 
   indexing_policy {
@@ -185,6 +183,7 @@ resource "kubernetes_deployment" "spin-test" {
 
       spec {
         service_account_name = kubernetes_service_account.wid.metadata.0.name
+        runtimeClassName = "wasmtime-spin-v2"
         container {
           image = var.app-image-ref
           name  = "spin-kv"
