@@ -15,7 +15,7 @@ terraform {
 
 provider "azurerm" {
   features {}
-  subscription_id = ""
+  subscription_id = var.subscription-id
 }
 
 data "azurerm_client_config" "current" {}
@@ -69,7 +69,7 @@ resource "azurerm_federated_identity_credential" "azwid" {
 }
 
 resource "azurerm_cosmosdb_account" "wid" {
-  name                = "spin-kv-cosmos-db"
+  name                = var.cosmos-db-account_name
   location            = azurerm_resource_group.wid.location
   resource_group_name = azurerm_resource_group.wid.name
   offer_type          = "Standard"
@@ -183,8 +183,9 @@ resource "kubernetes_deployment" "spin-test" {
 
       spec {
         service_account_name = kubernetes_service_account.wid.metadata.0.name
-        runtimeClassName = "wasmtime-spin-v2"
+        runtime_class_name = "wasmtime-spin-v2"
         container {
+          command = ["/"]
           image = var.app-image-ref
           name  = "spin-kv"
           env {
