@@ -15,5 +15,15 @@ variable "app-image-ref" {
 
 variable "node_sku" {
   description = "The azure vm sku name. The sku must be available in the region you select in the location variable."
-  default = Standard_DS2_v2
+  default = "Standard_D2pls_v6"
+}
+
+variable "subscription-id" {
+  description = "The Azure subscription id for the sub into which the deployments will happen."
+  default = ""
+}
+
+variable "cosmos-db-account_name" {
+  description = "The Azure subscription id for the sub into which the deployments will happen."
+  default = "spin-kv-cosmos-db-ralph"
 }
